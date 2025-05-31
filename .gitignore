@@ -1,0 +1,16 @@
+# Python virtual environment
+.venv/
+
+# Output directory
+screenshots/
+
+# Generated video reports
+*.mp4
+
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+*.pyo
+
+# macOS system files
+.DS_Store
