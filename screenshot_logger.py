@@ -77,16 +77,17 @@ def periodic_loop():
         count += 1
         time.sleep(CAPTURE_INTERVAL)
 
-def create_video_from_screenshots():
+def create_video_from_screenshots(out_path=None):
     files = sorted([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".webp")])
     if not files:
         print("[-] No screenshots found.")
         return
 
     default_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-    out_path = input(f"Enter path to save the video (default: {default_name}): ").strip()
     if not out_path:
-        out_path = default_name
+        out_path = input(f"Enter path to save the video (default: {default_name}): ").strip()
+        if not out_path:
+            out_path = default_name
 
     # Check if ffmpeg is available
     if shutil.which("ffmpeg"):
@@ -128,49 +129,17 @@ def handle_exit(signum, frame):
     cleanup_screenshots()
     exit(0)
 def create_video_on_exit():
-    files = sorted([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".webp")])
-    if not files:
-        print("[-] No screenshots found.")
+    default_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
+    try:
+        out_path = input(f"Enter filename to save the report (default: {default_name}): ").strip()
+    except KeyboardInterrupt:
+        print("\n[!] Interrupted during filename prompt. Skipping report generation.")
         return
 
-    first_img = cv2.imread(os.path.join(OUTPUT_DIR, files[0]))
-    height, width, _ = first_img.shape
-
-    default_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
-    out_path = input(f"Enter filename to save the report (default: {default_name}): ").strip()
     if not out_path:
         out_path = default_name
 
-    out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'), 1, (width, height))
-
-    for fname in files:
-        frames = []
-
-        for i, fname in enumerate(files):
-            frame = cv2.imread(os.path.join(OUTPUT_DIR, fname))
-
-            # Repeat each screenshot
-            repeat = FRAMES_PER_SHOT
-
-            # If it's the last screenshot and there are multiple screenshots
-            if i == len(files) - 1 and len(files) > 1:
-                repeat = FINAL_FRAME_HOLD
-
-            frames.extend([frame] * repeat)
-
-        # If only one screenshot, force longer duration
-        # if len(files) == 1:
-        #     frames.extend([frames[0]] * (MIN_FRAMES_IF_SINGLE - 1))  # already added one
-
-        # Ensure total minimum duration
-        while len(frames) < MIN_TOTAL_FRAMES:
-            frames.append(frames[-1])
-
-        out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'), FPS, (width, height))
-        for frame in frames:
-            out.write(frame)
-        out.release()
-        print(f"[✓] Report saved to: {out_path}")
+    create_video_from_screenshots(out_path=out_path)
 
 def cleanup_screenshots():
     for f in os.listdir(OUTPUT_DIR):
