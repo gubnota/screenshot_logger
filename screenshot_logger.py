@@ -55,13 +55,13 @@ def capture_screenshot(index):
     img = ImageGrab.grab()
     draw = ImageDraw.Draw(img)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    font = get_system_font(36)
+    font = get_system_font(24)
 
     img_width, _ = img.size
     text_bbox = draw.textbbox((0, 0), timestamp, font=font)
     text_width = text_bbox[2] - text_bbox[0]
     x = (img_width - text_width) / 2
-    y = 10
+    y = 1
 
     draw.text((x, y), timestamp, fill="white", font=font)
 
