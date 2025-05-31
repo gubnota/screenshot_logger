@@ -1,10 +1,13 @@
 import os
+import platform
 import time
 import argparse
 import signal
 from datetime import datetime
 from PIL import ImageGrab, Image, ImageDraw, ImageFont
 import cv2
+import shutil
+import subprocess
 
 # CONFIG
 CAPTURE_INTERVAL = 60  # seconds
@@ -21,13 +24,46 @@ def timestamped_filename(index):
     dt = datetime.now().strftime("%Y%m%d_%H%M%S")
     return os.path.join(OUTPUT_DIR, f"{index:04d}_{dt}.webp")
 
+def get_system_font(size=36):
+    system = platform.system()
+
+    font_paths = {
+        "Darwin": [  # macOS
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/System/Library/Fonts/Monaco.ttf",
+        ],
+        "Windows": [  # Windows
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/Calibri.ttf",
+        ],
+        "Linux": [  # Linux
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        ]
+    }
+
+    for path in font_paths.get(system, []):
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+
+    print("[!] Warning: Using default small font.")
+    return ImageFont.load_default()
+
 def capture_screenshot(index):
     img = ImageGrab.grab()
     draw = ImageDraw.Draw(img)
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    font = get_system_font(36)
 
-    # You can load a custom font if desired
-    draw.text((10, 10), timestamp, fill="white")
+    img_width, _ = img.size
+    text_bbox = draw.textbbox((0, 0), timestamp, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    x = (img_width - text_width) / 2
+    y = 10
+
+    draw.text((x, y), timestamp, fill="white", font=font)
 
     path = timestamped_filename(index)
     img.save(path, "WEBP", quality=WEBP_QUALITY)
@@ -47,23 +83,39 @@ def create_video_from_screenshots():
         print("[-] No screenshots found.")
         return
 
-    first_img = cv2.imread(os.path.join(OUTPUT_DIR, files[0]))
-    height, width, _ = first_img.shape
-
     default_name = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4"
     out_path = input(f"Enter path to save the video (default: {default_name}): ").strip()
-
     if not out_path:
         out_path = default_name
 
-    out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'), 1, (width, height))
-
-    for fname in files:
-        frame = cv2.imread(os.path.join(OUTPUT_DIR, fname))
-        out.write(frame)
-
-    out.release()
-    print(f"[✓] Video saved to: {out_path}")
+    # Check if ffmpeg is available
+    if shutil.which("ffmpeg"):
+        print("[*] Using ffmpeg to generate video...")
+        cmd = [
+            "ffmpeg",
+            "-framerate", str(FPS),
+            "-pattern_type", "glob",
+            "-i", os.path.join(OUTPUT_DIR, "*.webp"),
+            "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "-pix_fmt", "yuv420p",
+            "-preset", "ultrafast",
+            "-y", out_path
+        ]
+        try:
+            subprocess.run(cmd, check=True)
+            print(f"[✓] Video saved to: {out_path}")
+        except subprocess.CalledProcessError as e:
+            print("[-] ffmpeg failed:", e)
+    else:
+        print("[*] ffmpeg not found. Falling back to OpenCV...")
+        first_img = cv2.imread(os.path.join(OUTPUT_DIR, files[0]))
+        height, width, _ = first_img.shape
+        out = cv2.VideoWriter(out_path, cv2.VideoWriter_fourcc(*'mp4v'), FPS, (width, height))
+        for fname in files:
+            frame = cv2.imread(os.path.join(OUTPUT_DIR, fname))
+            out.write(frame)
+        out.release()
+        print(f"[✓] Video saved to: {out_path}")
 
 def handle_exit(signum, frame):
     global RUNNING
