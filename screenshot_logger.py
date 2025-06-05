@@ -19,16 +19,24 @@ RUNNING = True
 FPS = 1
 MERGE_MONITORS = False
 
+
 def timestamped_filename(index, suffix=""):
     dt = datetime.now().strftime("%Y%m%d_%H%M%S")
     return os.path.join(OUTPUT_DIR, f"{index:04d}{suffix}_{dt}.webp")
 
+
 def get_system_font(size=36):
     system = platform.system()
     font_paths = {
-        "Darwin": ["/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Monaco.ttf"],
+        "Darwin": [
+            "/System/Library/Fonts/Supplemental/Arial.ttf",
+            "/System/Library/Fonts/Monaco.ttf",
+        ],
         "Windows": ["C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/Calibri.ttf"],
-        "Linux": ["/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/freefont/FreeSans.ttf"]
+        "Linux": [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        ],
     }
     for path in font_paths.get(system, []):
         try:
@@ -38,17 +46,28 @@ def get_system_font(size=36):
     print("[!] Warning: Using default small font.")
     return ImageFont.load_default()
 
+
 def capture_screenshot(index):
+    # with mss.mss() as sct:
+    #     monitor_count = len(sct.monitors) - 1
     with mss.mss() as sct:
-        monitor_count = len(sct.monitors) - 1
-        if monitor_count <= 1 or MERGE_MONITORS:
-            monitor = sct.monitors[0] if MERGE_MONITORS else sct.monitors[1]
+        monitor_count = len(sct.monitors) - 1  # sct.monitors[0] — merged
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        if monitor_count < 1:
+            print(f"[!] {timestamp} No monitors found. Maybe in sleeping mode?")
+            return
+
+        if MERGE_MONITORS or monitor_count == 1:
+            monitor = sct.monitors[0]
             screenshot = sct.grab(monitor)
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
             draw = ImageDraw.Draw(img)
-            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             font = get_system_font(24)
-            label = f"{timestamp} (merged)" if MERGE_MONITORS and monitor_count > 1 else timestamp
+            label = (
+                f"{timestamp} (merged)"
+                if MERGE_MONITORS and monitor_count > 1
+                else timestamp
+            )
             text_bbox = draw.textbbox((0, 0), label, font=font)
             text_width = text_bbox[2] - text_bbox[0]
             x = (img.width - text_width) / 2
@@ -72,6 +91,7 @@ def capture_screenshot(index):
                 img.save(path, "WEBP", quality=WEBP_QUALITY)
                 print(f"[+] Screenshot (monitor {i}) saved: {path}")
 
+
 def periodic_loop():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     count = 0
@@ -79,6 +99,7 @@ def periodic_loop():
         capture_screenshot(count)
         count += 1
         time.sleep(CAPTURE_INTERVAL)
+
 
 def create_video_from_screenshots():
     files = sorted([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".webp")])
@@ -101,12 +122,15 @@ def create_video_from_screenshots():
         first_img = cv2.imread(os.path.join(OUTPUT_DIR, monitor_files[0]))
         height, width, _ = first_img.shape
         output_path = f"report_{timestamp}_monitor{monitor_id}.mp4"
-        out = cv2.VideoWriter(output_path, cv2.VideoWriter_fourcc(*'mp4v'), FPS, (width, height))
+        out = cv2.VideoWriter(
+            output_path, cv2.VideoWriter_fourcc(*"mp4v"), FPS, (width, height)
+        )
         for fname in monitor_files:
             frame = cv2.imread(os.path.join(OUTPUT_DIR, fname))
             out.write(frame)
         out.release()
         print(f"[✓] Video for monitor {monitor_id} saved to: {output_path}")
+
 
 def handle_exit(signum, frame):
     global RUNNING
@@ -117,17 +141,33 @@ def handle_exit(signum, frame):
     cleanup_screenshots()
     exit(0)
 
+
 def cleanup_screenshots():
     for f in os.listdir(OUTPUT_DIR):
         if f.endswith(".webp"):
             os.remove(os.path.join(OUTPUT_DIR, f))
     print("[*] Temporary screenshots cleaned up.")
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Screenshot logger with per-monitor video export")
-    parser.add_argument("--collect", action="store_true", help="Start collecting screenshots periodically")
-    parser.add_argument("--report", action="store_true", help="Create a report video from collected screenshots")
-    parser.add_argument("--merge", action="store_true", help="Capture all monitors as a single merged image")
+    parser = argparse.ArgumentParser(
+        description="Screenshot logger with per-monitor video export"
+    )
+    parser.add_argument(
+        "--collect",
+        action="store_true",
+        help="Start collecting screenshots periodically",
+    )
+    parser.add_argument(
+        "--report",
+        action="store_true",
+        help="Create a report video from collected screenshots",
+    )
+    parser.add_argument(
+        "--merge",
+        action="store_true",
+        help="Capture all monitors as a single merged image",
+    )
     args = parser.parse_args()
 
     MERGE_MONITORS = args.merge
