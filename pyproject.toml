@@ -3,7 +3,11 @@ name = "screenshot-logger"
 version = "0.0.1"
 description = "Background screenshot logger with video proof export"
 requires-python = ">=3.8"
-dependencies = ["pillow", "opencv-python"]
+dependencies = [
+    "pillow",
+ "opencv-python",
+ "mss>=9.0.2",
+]
 
 [project.scripts]
 log_screens = "screenshot_logger.screenshot_logger:main"
