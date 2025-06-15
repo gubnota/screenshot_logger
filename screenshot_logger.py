@@ -119,18 +119,58 @@ def create_video_from_screenshots():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     for monitor_id, monitor_files in monitor_frames.items():
         monitor_files.sort()
-        first_img = cv2.imread(os.path.join(OUTPUT_DIR, monitor_files[0]))
-        height, width, _ = first_img.shape
-        output_path = f"report_{timestamp}_monitor{monitor_id}.mp4"
+        # STEP 1: Scan for largest resolution
+        max_width, max_height = 0, 0
+        for fname in monitor_files:
+            img = cv2.imread(os.path.join(OUTPUT_DIR, fname))
+            if img is None:
+                continue
+            h, w = img.shape[:2]
+            if w > max_width:
+                max_width = w
+            if h > max_height:
+                max_height = h
+        if max_width == 0 or max_height == 0:
+            print(f"[-] No valid frames for monitor {monitor_id}")
+            continue
+
+        # STEP 2: Create video with max resolution, pad if needed
+        if monitor_id == "merged":
+            output_path = f"report_{timestamp}.mp4"
+        else:
+            output_path = f"report_{timestamp}_m{monitor_id}.mp4"
         out = cv2.VideoWriter(
-            output_path, cv2.VideoWriter_fourcc(*"mp4v"), FPS, (width, height)
+            output_path, cv2.VideoWriter_fourcc(*"mp4v"), FPS, (max_width, max_height)
         )
+        frame_count = 0
+        last_frame = None
         for fname in monitor_files:
             frame = cv2.imread(os.path.join(OUTPUT_DIR, fname))
+            if frame is None:
+                continue
+            h, w = frame.shape[:2]
+            if w != max_width or h != max_height:
+                # Pad image to max resolution (black borders)
+                top = (max_height - h) // 2
+                bottom = max_height - h - top
+                left = (max_width - w) // 2
+                right = max_width - w - left
+                frame = cv2.copyMakeBorder(
+                    frame, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(0, 0, 0)
+                )
             out.write(frame)
+            frame_count += 1
+            last_frame = frame
+
+        # Add extra frames at the end
+        if last_frame is not None:
+            if frame_count == 1:
+                out.write(last_frame)
+                out.write(last_frame)
+            else:
+                out.write(last_frame)
         out.release()
         print(f"[✓] Video for monitor {monitor_id} saved to: {output_path}")
-
 
 def handle_exit(signum, frame):
     global RUNNING
