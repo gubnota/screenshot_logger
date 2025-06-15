@@ -6,8 +6,6 @@ import signal
 from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 import mss
-import shutil
-import subprocess
 import cv2
 from collections import defaultdict
 
@@ -46,12 +44,9 @@ def get_system_font(size=36):
     print("[!] Warning: Using default small font.")
     return ImageFont.load_default()
 
-
-def capture_screenshot(index):
-    # with mss.mss() as sct:
-    #     monitor_count = len(sct.monitors) - 1
+def capture_screenshot(index, print_label=True):
     with mss.mss() as sct:
-        monitor_count = len(sct.monitors) - 1  # sct.monitors[0] — merged
+        monitor_count = len(sct.monitors) - 1
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         if monitor_count < 1:
             print(f"[!] {timestamp} No monitors found. Maybe in sleeping mode?")
@@ -61,17 +56,18 @@ def capture_screenshot(index):
             monitor = sct.monitors[0]
             screenshot = sct.grab(monitor)
             img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-            draw = ImageDraw.Draw(img)
-            font = get_system_font(24)
-            label = (
-                f"{timestamp} (merged)"
-                if MERGE_MONITORS and monitor_count > 1
-                else timestamp
-            )
-            text_bbox = draw.textbbox((0, 0), label, font=font)
-            text_width = text_bbox[2] - text_bbox[0]
-            x = (img.width - text_width) / 2
-            draw.text((x, 1), label, fill="white", font=font)
+            if print_label:
+                draw = ImageDraw.Draw(img)
+                font = get_system_font(24)
+                label = (
+                    f"{timestamp} (merged)"
+                    if MERGE_MONITORS and monitor_count > 1
+                    else timestamp
+                )
+                text_bbox = draw.textbbox((0, 0), label, font=font)
+                text_width = text_bbox[2] - text_bbox[0]
+                x = (img.width - text_width) / 2
+                draw.text((x, 1), label, fill="white", font=font)
             path = timestamped_filename(index)
             img.save(path, "WEBP", quality=WEBP_QUALITY)
             print(f"[+] Screenshot saved: {path}")
@@ -79,27 +75,26 @@ def capture_screenshot(index):
             for i, monitor in enumerate(sct.monitors[1:], start=1):
                 screenshot = sct.grab(monitor)
                 img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
-                draw = ImageDraw.Draw(img)
-                timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                font = get_system_font(24)
-                label = f"Monitor {i}: {timestamp}"
-                text_bbox = draw.textbbox((0, 0), label, font=font)
-                text_width = text_bbox[2] - text_bbox[0]
-                x = (img.width - text_width) / 2
-                draw.text((x, 1), label, fill="white", font=font)
+                if print_label:
+                    draw = ImageDraw.Draw(img)
+                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    font = get_system_font(24)
+                    label = f"Monitor {i}: {timestamp}"
+                    text_bbox = draw.textbbox((0, 0), label, font=font)
+                    text_width = text_bbox[2] - text_bbox[0]
+                    x = (img.width - text_width) / 2
+                    draw.text((x, 1), label, fill="white", font=font)
                 path = timestamped_filename(index, f"_monitor{i}")
                 img.save(path, "WEBP", quality=WEBP_QUALITY)
                 print(f"[+] Screenshot (monitor {i}) saved: {path}")
 
-
-def periodic_loop():
+def periodic_loop(print_label=True):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     count = 0
     while RUNNING:
-        capture_screenshot(count)
+        capture_screenshot(count, print_label)
         count += 1
         time.sleep(CAPTURE_INTERVAL)
-
 
 def create_video_from_screenshots():
     files = sorted([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".webp")])
@@ -134,7 +129,6 @@ def create_video_from_screenshots():
             print(f"[-] No valid frames for monitor {monitor_id}")
             continue
 
-        # STEP 2: Create video with max resolution, pad if needed
         if monitor_id == "merged":
             output_path = f"report_{timestamp}.mp4"
         else:
@@ -150,14 +144,18 @@ def create_video_from_screenshots():
                 continue
             h, w = frame.shape[:2]
             if w != max_width or h != max_height:
-                # Pad image to max resolution (black borders)
-                top = (max_height - h) // 2
-                bottom = max_height - h - top
-                left = (max_width - w) // 2
-                right = max_width - w - left
-                frame = cv2.copyMakeBorder(
-                    frame, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(0, 0, 0)
-                )
+                if UPSCALE:
+                    # Scale to max resolution (may stretch if AR doesn't match)
+                    frame = cv2.resize(frame, (max_width, max_height), interpolation=cv2.INTER_LINEAR)
+                else:
+                    # Pad image to max resolution (black borders)
+                    top = (max_height - h) // 2
+                    bottom = max_height - h - top
+                    left = (max_width - w) // 2
+                    right = max_width - w - left
+                    frame = cv2.copyMakeBorder(
+                        frame, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(0, 0, 0)
+                    )
             out.write(frame)
             frame_count += 1
             last_frame = frame
@@ -171,7 +169,6 @@ def create_video_from_screenshots():
                 out.write(last_frame)
         out.release()
         print(f"[✓] Video for monitor {monitor_id} saved to: {output_path}")
-
 def handle_exit(signum, frame):
     global RUNNING
     print("\n[!] Stopping collection. Finalizing report...")
@@ -208,9 +205,26 @@ if __name__ == "__main__":
         action="store_true",
         help="Capture all monitors as a single merged image",
     )
+    # Default is upscale=True; --no-upscale or --center will disable upscaling
+    parser.add_argument(
+        "--no-upscale",
+        "--center",
+        action="store_false",
+        dest="upscale",
+        help="Disable upscaling; center/pad smaller frames instead.",
+    )
+    # do not print datetime/label on screenshots
+    parser.add_argument(
+    "--no-datetime",
+    action="store_true",
+    help="Do not print datetime/label on screenshots.",
+    )
+    parser.set_defaults(upscale=True)
     args = parser.parse_args()
 
     MERGE_MONITORS = args.merge
+    UPSCALE = args.upscale
+    PRINT_LABEL = not args.no_datetime
 
     if not args.collect and not args.report:
         args.collect = True
@@ -220,7 +234,7 @@ if __name__ == "__main__":
         signal.signal(signal.SIGINT, handle_exit)
         signal.signal(signal.SIGTERM, handle_exit)
         print(f"[+] Starting screenshot collection (merge mode: {MERGE_MONITORS})...")
-        periodic_loop()
+        periodic_loop(PRINT_LABEL)
     elif args.report:
         try:
             create_video_from_screenshots()
