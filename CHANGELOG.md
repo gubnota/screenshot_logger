@@ -19,3 +19,15 @@ sleep 2; uv run python3 screenshot_logger.py
 - [x] If resolution changes in time it will center smaller images
 - [x] for shorter videos one or two extra frames will be added
 - [x] long name was replaced with shorter ones (m1, m2 for monitors)
+
+# v0.0.4
+
+- [x] added upscaling smaller images to fit the screen (by default)
+      otherwise it will be centered (no upscaling):
+- [x] --no-datetime option
+
+```sh
+python yourscript.py --report --no-upscale
+# or
+python yourscript.py --report --center --no-datetime
+```
