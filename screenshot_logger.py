@@ -3,39 +3,28 @@ import platform
 import time
 import argparse
 import signal
-from datetime import datetime
+from datetime import datetime, timezone
 from PIL import Image, ImageDraw, ImageFont
 import mss
 import cv2
 from collections import defaultdict
+from img_export import create_zip_from_screenshots
+from vars import CONFIG
 
-# CONFIG
-CAPTURE_INTERVAL = 60  # seconds
-OUTPUT_DIR = "screenshots"
-WEBP_QUALITY = 85
 RUNNING = True
-FPS = 1
 MERGE_MONITORS = False
 
-
 def timestamped_filename(index, suffix=""):
-    dt = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return os.path.join(OUTPUT_DIR, f"{index:04d}{suffix}_{dt}.webp")
-
+    dt = (
+        datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        if USE_UTC
+        else datetime.now().strftime("%Y%m%d_%H%M%S")
+    )
+    return os.path.join(CONFIG.OUTPUT_DIR, f"{index:04d}{suffix}_{dt}{'Z' if USE_UTC else ''}.webp")
 
 def get_system_font(size=36):
     system = platform.system()
-    font_paths = {
-        "Darwin": [
-            "/System/Library/Fonts/Supplemental/Arial.ttf",
-            "/System/Library/Fonts/Monaco.ttf",
-        ],
-        "Windows": ["C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/Calibri.ttf"],
-        "Linux": [
-            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
-        ],
-    }
+    font_paths = CONFIG.FONT_PATHS
     for path in font_paths.get(system, []):
         try:
             return ImageFont.truetype(path, size)
@@ -45,9 +34,14 @@ def get_system_font(size=36):
     return ImageFont.load_default()
 
 def capture_screenshot(index, print_label=True):
+    global USE_UTC
     with mss.mss() as sct:
         monitor_count = len(sct.monitors) - 1
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        timestamp = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+            if USE_UTC
+            else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
         if monitor_count < 1:
             print(f"[!] {timestamp} No monitors found. Maybe in sleeping mode?")
             return
@@ -69,7 +63,7 @@ def capture_screenshot(index, print_label=True):
                 x = (img.width - text_width) / 2
                 draw.text((x, 1), label, fill="white", font=font)
             path = timestamped_filename(index)
-            img.save(path, "WEBP", quality=WEBP_QUALITY)
+            img.save(path, "WEBP", quality=CONFIG.WEBP_QUALITY)
             print(f"[+] Screenshot saved: {path}")
         else:
             for i, monitor in enumerate(sct.monitors[1:], start=1):
@@ -77,7 +71,11 @@ def capture_screenshot(index, print_label=True):
                 img = Image.frombytes("RGB", screenshot.size, screenshot.rgb)
                 if print_label:
                     draw = ImageDraw.Draw(img)
-                    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    timestamp = (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
+            if USE_UTC
+            else datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
                     font = get_system_font(24)
                     label = f"Monitor {i}: {timestamp}"
                     text_bbox = draw.textbbox((0, 0), label, font=font)
@@ -85,19 +83,19 @@ def capture_screenshot(index, print_label=True):
                     x = (img.width - text_width) / 2
                     draw.text((x, 1), label, fill="white", font=font)
                 path = timestamped_filename(index, f"_monitor{i}")
-                img.save(path, "WEBP", quality=WEBP_QUALITY)
+                img.save(path, "WEBP", quality=CONFIG.WEBP_QUALITY)
                 print(f"[+] Screenshot (monitor {i}) saved: {path}")
 
 def periodic_loop(print_label=True):
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    os.makedirs(CONFIG.OUTPUT_DIR, exist_ok=True)
     count = 0
     while RUNNING:
         capture_screenshot(count, print_label)
         count += 1
-        time.sleep(CAPTURE_INTERVAL)
+        time.sleep(CONFIG.CAPTURE_INTERVAL)
 
 def create_video_from_screenshots():
-    files = sorted([f for f in os.listdir(OUTPUT_DIR) if f.endswith(".webp")])
+    files = sorted([f for f in os.listdir(CONFIG.OUTPUT_DIR) if f.endswith(".webp")])
     if not files:
         print("[-] No screenshots found.")
         return
@@ -117,7 +115,7 @@ def create_video_from_screenshots():
         # STEP 1: Scan for largest resolution
         max_width, max_height = 0, 0
         for fname in monitor_files:
-            img = cv2.imread(os.path.join(OUTPUT_DIR, fname))
+            img = cv2.imread(os.path.join(CONFIG.OUTPUT_DIR, fname))
             if img is None:
                 continue
             h, w = img.shape[:2]
@@ -134,12 +132,12 @@ def create_video_from_screenshots():
         else:
             output_path = f"report_{timestamp}_m{monitor_id}.mp4"
         out = cv2.VideoWriter(
-            output_path, cv2.VideoWriter_fourcc(*"mp4v"), FPS, (max_width, max_height)
+            output_path, cv2.VideoWriter_fourcc(*"mp4v"), CONFIG.FPS, (max_width, max_height)
         )
         frame_count = 0
         last_frame = None
         for fname in monitor_files:
-            frame = cv2.imread(os.path.join(OUTPUT_DIR, fname))
+            frame = cv2.imread(os.path.join(CONFIG.OUTPUT_DIR, fname))
             if frame is None:
                 continue
             h, w = frame.shape[:2]
@@ -170,23 +168,29 @@ def create_video_from_screenshots():
         out.release()
         print(f"[✓] Video for monitor {monitor_id} saved to: {output_path}")
 def handle_exit(signum, frame):
-    global RUNNING
+    global RUNNING, args, USE_UTC
     print("\n[!] Stopping collection. Finalizing report...")
     RUNNING = False
     time.sleep(1)
-    create_video_from_screenshots()
+    if getattr(args, "img", False):#if args.img:
+        create_zip_from_screenshots()
+    else:
+        create_video_from_screenshots()
     cleanup_screenshots()
     exit(0)
 
 
 def cleanup_screenshots():
-    for f in os.listdir(OUTPUT_DIR):
+    if not os.path.exists(CONFIG.OUTPUT_DIR):
+        print("[*] No screenshots directory to clean.")
+        return
+    for f in os.listdir(CONFIG.OUTPUT_DIR):
         if f.endswith(".webp"):
-            os.remove(os.path.join(OUTPUT_DIR, f))
+            os.remove(os.path.join(CONFIG.OUTPUT_DIR, f))
     print("[*] Temporary screenshots cleaned up.")
 
-
 if __name__ == "__main__":
+    global args, USE_UTC
     parser = argparse.ArgumentParser(
         description="Screenshot logger with per-monitor video export"
     )
@@ -219,12 +223,23 @@ if __name__ == "__main__":
     action="store_true",
     help="Do not print datetime/label on screenshots.",
     )
+## output zip file of screenshots and universal time
+    parser.add_argument(
+        "--img",
+        action="store_true",
+        help="Export screenshots as ZIP archive (no compression).",
+    )
+    parser.add_argument(
+        "--utc",
+        action="store_true",
+        help="Use UTC timestamps instead of local time."
+    )
     parser.set_defaults(upscale=True)
     args = parser.parse_args()
-
     MERGE_MONITORS = args.merge
     UPSCALE = args.upscale
     PRINT_LABEL = not args.no_datetime
+    USE_UTC = args.utc
 
     if not args.collect and not args.report:
         args.collect = True
@@ -241,3 +256,6 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("\n[!] Interrupted during save prompt. Cleaning screenshots.")
             cleanup_screenshots()
+    elif args.img:
+        create_zip_from_screenshots()
+        cleanup_screenshots()

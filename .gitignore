@@ -3,7 +3,7 @@
 
 # Output directory
 screenshots/
-
+/screenshots*.zip
 # Generated video reports
 *.mp4
 

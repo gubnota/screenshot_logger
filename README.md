@@ -39,3 +39,9 @@ uv run python screenshot_logger.py --report
 cd path/to/screenshot_logger
 uv run python -m screenshot_logger --report
 ```
+
+### Export zipped images folder option with UTC time
+
+```sh
+uv run screenshot_logger.py --utc --img
+```

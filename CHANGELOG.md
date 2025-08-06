@@ -1,3 +1,7 @@
+# v0.0.5
+
+- UTC support, export zipped images option
+
 # v0.0.2
 
 Multiple screens support
